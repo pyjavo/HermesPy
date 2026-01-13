@@ -224,54 +224,181 @@ class WhatsAppSender:
             self.setup_driver()
         
         try:
-            # Direct URL with phone number
-            url = f"https://web.whatsapp.com/send?phone={phone_number}"
-            print(f"\n📤 Sending message to: +{phone_number}")
+            print(f"\n📤 Preparing to send message to: +{phone_number}")
             
-            self.driver.get(url)
-            
-            # Wait for WhatsApp to load and check login
+            # First, ensure we're logged into WhatsApp Web
+            print("⏳ Loading WhatsApp Web...")
+            self.driver.get("https://web.whatsapp.com/")
             time.sleep(5)
             
+            # Check if logged in
             if not self.is_logged_in():
                 print("❌ Not logged in. Running first-time setup...")
                 if not self.first_time_setup():
                     return False
-                self.driver.get(url)
-                time.sleep(5)
             
-            # Wait for message box
-            message_box = WebDriverWait(self.driver, 30).until(
-                EC.presence_of_element_located((By.XPATH, '//div[@contenteditable="true"][@data-tab="10"]'))
-            )
+            print("✓ Logged in to WhatsApp Web")
             
-            # Send message - type character by character
+            # Wait for WhatsApp to be fully loaded
+            try:
+                WebDriverWait(self.driver, 30).until(
+                    EC.presence_of_element_located((By.ID, "side"))
+                )
+                print("✓ WhatsApp fully loaded")
+            except:
+                print("⚠️ WhatsApp may not be fully loaded, continuing...")
+
+            time.sleep(3)
+
+            # Now navigate to the phone number URL
+            url = f"https://web.whatsapp.com/send?phone={phone_number}"
+            print(f"⏳ Opening chat with +{phone_number}...")
+            self.driver.get(url)
+
+            # Wait and monitor for URL changes (the refresh)
+            print("⏳ Waiting for page to stabilize (checking for refresh)...")
+            initial_url = self.driver.current_url
+            time.sleep(5)
+
+            # Check if URL changed (indicates a refresh/redirect)
+            current_url = self.driver.current_url
+            if current_url != initial_url:
+                print(f"✓ Page refreshed, new URL detected")
+                time.sleep(5)  # Wait for new page to load
+
+            # Wait for chat to be ready - look for the main chat area
+            print("⏳ Waiting for chat window to load...")
+            chat_loaded = False
+
+            for i in range(10):  # Try for up to 30 seconds
+                try:
+                    # Check if main chat div exists
+                    self.driver.find_element(By.XPATH, '//div[@id="main"]')
+                    print("✓ Chat window loaded")
+                    chat_loaded = True
+                    break
+                except:
+                    if i < 9:
+                        time.sleep(3)
+                        print(f"  Still waiting... ({i+1}/10)")
+
+            if not chat_loaded:
+                print("⚠️ Chat window didn't load properly, trying anyway...")
+
+            time.sleep(3)
+
+            # Now find the message box - be very specific to avoid search box
+            print("✓ Looking for message input box...")
+            message_box = None
+            max_attempts = 5
+
+            for attempt in range(max_attempts):
+                print(f"  Attempt {attempt + 1}/{max_attempts}...")
+
+                if attempt > 0:
+                    time.sleep(3)
+
+                # Method 1: Message box in footer with data-tab="10" (most specific)
+                try:
+                    message_box = self.driver.find_element(
+                        By.XPATH, 
+                        '//footer//div[@contenteditable="true"][@data-tab="10"]'
+                    )
+                    print("✓ Found message box (method 1 - footer with data-tab)")
+                    break
+                except:
+                    pass
+
+                # Method 2: Message box by placeholder/title in footer
+                try:
+                    message_box = self.driver.find_element(
+                        By.XPATH, 
+                        '//footer//div[@contenteditable="true" and @role="textbox"]'
+                    )
+                    print("✓ Found message box (method 2 - footer textbox)")
+                    break
+                except:
+                    pass
+
+                # Method 3: Find footer first, then contenteditable inside it
+                try:
+                    # Make sure it's NOT in the side panel (search area)
+                    message_box = self.driver.find_element(
+                        By.XPATH, 
+                        '//div[@id="main"]//footer//div[@contenteditable="true"]'
+                    )
+                    print("✓ Found message box (method 3 - main/footer)")
+                    break
+                except:
+                    pass
+
+                # Method 4: By data-testid
+                try:
+                    message_box = self.driver.find_element(
+                        By.XPATH, 
+                        '//div[@data-testid="conversation-compose-box-input"]'
+                    )
+                    print("✓ Found message box (method 4 - data-testid)")
+                    break
+                except:
+                    pass
+
+                # Method 5: Specific p tag approach (newer WhatsApp)
+                try:
+                    message_box = self.driver.find_element(
+                        By.XPATH, 
+                        '//div[@id="main"]//div[@contenteditable="true"][@data-tab="10"]'
+                    )
+                    print("✓ Found message box (method 5 - main area)")
+                    break
+                except:
+                    pass
+
+            if not message_box:
+                print("❌ Could not find message box")
+                print("💡 Checking for error messages...")
+
+                # Check for invalid number message
+                try:
+                    error = self.driver.find_element(By.XPATH, '//*[contains(text(), "phone number")]')
+                    print(f"❌ WhatsApp error: {error.text}")
+                except:
+                    pass
+
+                print("\n🔍 Browser will stay open for 20 seconds - check the screen")
+                time.sleep(20)
+                return False
+
+            # Send message character by character
+            print("✓ Message box found! Typing message...")
             message_box.click()
-            time.sleep(0.5)
-            
-            # Split message by lines to handle Enter key properly
+            time.sleep(1)
+
+            # Type message character by character
             lines = message.split('\n')
             for i, line in enumerate(lines):
                 for char in line:
                     message_box.send_keys(char)
-                    time.sleep(0.05)  # Small delay between characters
-                
-                # Add line break if not the last line
+                    time.sleep(0.05)
+
                 if i < len(lines) - 1:
                     message_box.send_keys(Keys.SHIFT + Keys.ENTER)
                     time.sleep(0.1)
-            
+
+            print("✓ Message typed! Sending...")
             time.sleep(1)
             message_box.send_keys(Keys.ENTER)
-            
+
             print("✅ Message sent successfully!")
-            time.sleep(2)
+            time.sleep(3)
             return True
-            
+
         except Exception as e:
             print(f"❌ Error: {str(e)}")
+            print("🔍 Browser will stay open for 20 seconds - check what's on screen")
+            time.sleep(20)
             return False
-    
+
     def close(self):
         """Close the browser"""
         if self.driver:
@@ -290,15 +417,14 @@ if __name__ == "__main__":
     
     # Method 1: Send by contact name
     #sender.send_message(
-    #    contact_name="Paula Auza",
-    #    message="Hola Paula, esta es una prueba de un mensaje automatizado :)"
+    #    contact_name="Maleja Nieto",
+    #    message="Hi Maleja, this is an automated message test :)"
     #)
     
     # Method 2: Send by phone number (faster, more reliable)
-    # Uncomment and add phone number with country code
     sender.send_message_by_phone(
-        phone_number="573001234567",
-        message="Hola Steffy, esta es una prueba de un mensaje automatizado :)"
+        phone_number="573001234567",  # Replace with actual number
+        message="Hi Steffy, this is an automated message test :)"
     )
     
     # Close browser
