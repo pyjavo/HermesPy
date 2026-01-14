@@ -3,6 +3,12 @@ WhatsApp Message Sender - No manual intervention needed after first setup
 Uses saved browser session to stay logged in
 """
 
+import time
+import os
+import json
+from datetime import datetime
+import pytz
+
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -10,9 +16,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.firefox.service import Service
-import time
-import os
-import json
+
 
 class WhatsAppSender:
     def __init__(self, profile_dir="whatsapp_profile"):
@@ -24,6 +28,7 @@ class WhatsAppSender:
         """
         self.profile_dir = os.path.abspath(profile_dir)
         self.driver = None
+        self.bogota_tz = pytz.timezone('America/Bogota')
         
     def setup_driver(self):
         """Set up Firefox with persistent profile"""
@@ -399,6 +404,142 @@ class WhatsAppSender:
             time.sleep(20)
             return False
 
+    def load_contacts_from_json(self, json_file="contacts.json"):
+        """
+        Load contacts from JSON file
+
+        Args:
+            json_file: Path to JSON file with contacts
+
+        Returns:
+            List of contact dictionaries
+        """
+
+        try:
+            with open(json_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            print(f"✓ Loaded {len(data['contacts'])} contacts from {json_file}")
+            return data['contacts']
+        except FileNotFoundError:
+            print(f"❌ File not found: {json_file}")
+            return []
+        except Exception as e:
+            print(f"❌ Error loading contacts: {str(e)}")
+            return []
+
+    def get_current_bogota_time(self):
+        """Get current time in Bogotá timezone"""
+        return datetime.now(self.bogota_tz)
+
+    def parse_schedule_time(self, time_str):
+        """
+        Parse schedule time string (HH:MM) to today's datetime in Bogotá timezone
+
+        Args:
+            time_str: Time string in format "HH:MM" (24-hour format)
+
+        Returns:
+            datetime object in Bogotá timezone
+        """
+
+        try:
+            hour, minute = map(int, time_str.split(':'))
+            now = self.get_current_bogota_time()
+            scheduled = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            return scheduled
+        except Exception as e:
+            print(f"❌ Error parsing time '{time_str}': {str(e)}")
+            return None
+
+    def wait_until_scheduled_time(self, schedule_time_str):
+        """
+        Wait until the scheduled time arrives
+
+        Args:
+            schedule_time_str: Time string in format "HH:MM"
+
+        Returns:
+            True if wait completed, False if time already passed
+        """
+
+        scheduled_time = self.parse_schedule_time(schedule_time_str)
+        if not scheduled_time:
+            return False
+
+        current_time = self.get_current_bogota_time()
+
+        # If scheduled time is in the past, skip
+        if scheduled_time <= current_time:
+            print(f"⚠️ Scheduled time {schedule_time_str} has already passed")
+            return False
+
+        # Calculate wait time
+        wait_seconds = (scheduled_time - current_time).total_seconds()
+        wait_minutes = wait_seconds / 60
+
+        print(f"⏰ Scheduled for {schedule_time_str} (Bogotá time)")
+        print(f"⏳ Waiting {int(wait_minutes)} minutes and {int(wait_seconds % 60)} seconds...")
+
+        # Wait until scheduled time
+        time.sleep(wait_seconds)
+        return True
+
+    def send_scheduled_messages(self, json_file="contacts.json"):
+        """
+        Send messages to multiple contacts at scheduled times
+
+        Args:
+            json_file: Path to JSON file with contacts and schedules
+        """
+
+        contacts = self.load_contacts_from_json(json_file)
+        if not contacts:
+            print("❌ No contacts to process")
+            return
+
+        # Sort contacts by schedule time
+        contacts_sorted = sorted(contacts, key=lambda x: x['schedule_time'])
+
+        print("\n" + "="*60)
+        print("SCHEDULED MESSAGES OVERVIEW")
+        print("="*60)
+        print(f"Current time in Bogotá: {self.get_current_bogota_time().strftime('%H:%M:%S')}")
+        print(f"Total contacts: {len(contacts_sorted)}")
+        print("\nSchedule:")
+        for contact in contacts_sorted:
+            print(f"  {contact['schedule_time']} - {contact['name']} (+{contact['phone']})")
+        print("="*60 + "\n")
+
+        # Process each contact
+        for i, contact in enumerate(contacts_sorted, 1):
+            print(f"\n📋 Processing contact {i}/{len(contacts_sorted)}")
+            print(f"   Name: {contact['name']}")
+            print(f"   Phone: +{contact['phone']}")
+
+            # Wait until scheduled time
+            if not self.wait_until_scheduled_time(contact['schedule_time']):
+                print(f"⏭️ Skipping {contact['name']} (time already passed)")
+                continue
+
+            # Send message
+            print(f"🕐 It's time! Sending message to {contact['name']}...")
+            success = self.send_message_by_phone(
+                phone_number=contact['phone'],
+                message=contact['message']
+            )
+
+            if success:
+                print(f"✅ Message to {contact['name']} sent successfully!")
+            else:
+                print(f"❌ Failed to send message to {contact['name']}")
+
+            # Small delay between messages
+            time.sleep(5)
+
+        print("\n" + "="*60)
+        print("ALL SCHEDULED MESSAGES COMPLETED!")
+        print("="*60)
+
     def close(self):
         """Close the browser"""
         if self.driver:
@@ -415,17 +556,7 @@ if __name__ == "__main__":
     print("WhatsApp Automated Message Sender")
     print("="*50)
     
-    # Method 1: Send by contact name
-    #sender.send_message(
-    #    contact_name="Maleja Nieto",
-    #    message="Hi Maleja, this is an automated message test :)"
-    #)
-    
-    # Method 2: Send by phone number (faster, more reliable)
-    sender.send_message_by_phone(
-        phone_number="573001234567",  # Replace with actual number
-        message="Hi Steffy, this is an automated message test :)"
-    )
-    
+    sender.send_scheduled_messages("contacts.json")
+
     # Close browser
     sender.close()

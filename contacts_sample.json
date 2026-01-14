@@ -1,0 +1,22 @@
+{
+    "contacts": [
+        {
+            "name": "Juan",
+            "phone": "573001234567",
+            "message": "Hi Juan, this is an automated message test :)",
+            "schedule_time": "09:00"
+        },
+        {
+            "name": "John",
+            "phone": "573007654321",
+            "message": "Good morning John! Hope you have a great day!",
+            "schedule_time": "10:30"
+        },
+        {
+            "name": "Maria",
+            "phone": "573009876543",
+            "message": "Hi Maria! Just wanted to say hello 👋",
+            "schedule_time": "14:00"
+        }
+    ]
+}
