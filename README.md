@@ -1,5 +1,9 @@
 # WhatsApp Automated Message Sender
 
+<p align="center">
+  <img src="assets/logo.png" alt="HermesPy Logo" width="300"/>
+</p>
+
 Send automated WhatsApp messages using Python and Selenium. After a one-time QR code scan, the script can send messages without any manual intervention.
 Supports scheduled messaging to multiple contacts throughout the day.
 
